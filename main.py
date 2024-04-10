@@ -2,7 +2,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Depends, HTTPException
 from databases import Database
 from pydantic import BaseModel
-
+import random
+import string
+import psycopg2
 DATABASE_URL = "postgresql+asyncpg://postgres:root@localhost/postgres"
 
 app = FastAPI()
@@ -215,3 +217,85 @@ async def RegisterUser(userdata: UserRegistration):
         await database.disconnect()
 
 
+class LoginCredentials(BaseModel):
+    email: str
+    password: str
+
+
+# Database connection parameters
+DB_NAME = "postgres"
+DB_USER = "postgres"
+DB_PASSWORD = "root"
+DB_HOST = "localhost"
+DB_PORT = "5432"
+
+
+def authenticate_user(email: str, password: str) -> int:
+
+
+    # Database connection parameters
+    DB_NAME = "postgres"
+    DB_USER = "postgres"
+    DB_PASSWORD = "root"
+    DB_HOST = "localhost"
+    DB_PORT = "5432"
+    conn = psycopg2.connect(
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        host=DB_HOST,
+        port=DB_PORT
+    )
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT farmerid FROM farmer_info WHERE farmeremail = %s AND password = %s", (email, password))
+    user = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if user:
+        return user[0]  # Returns the farmerid if authentication successful
+    else:
+        return None
+
+# Function to generate a random token
+
+
+def generate_token(length: int = 32) -> str:
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+    
+# Endpoint to handle login requests
+
+
+@app.post("/login")
+async def login(credentials: LoginCredentials):
+    print(credentials)
+    farmerid = authenticate_user(credentials.email, credentials.password)
+    if farmerid:
+        token = generate_token()
+
+        conn = psycopg2.connect(
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            host=DB_HOST,
+            port=DB_PORT
+        )
+        cur = conn.cursor()
+
+        cur.execute(
+            "INSERT INTO authentication (farmerid, expire, token) VALUES (%s, %s, %s)", (farmerid, False, token))
+        conn.commit()
+        print("Values entered in authentication table")
+        print(farmerid)
+        print(token)
+
+        cur.close()
+        conn.close()
+
+        return {"token": token}
+    else:
+        raise HTTPException(
+            status_code=401, detail="Invalid email or password")
